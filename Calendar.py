@@ -7,7 +7,10 @@ import urllib.parse
 from sqlalchemy import create_engine
 from mysql.connector import Error as MyError
 import time
+import warnings
 
+
+warnings.filterwarnings("ignore", category=UserWarning)
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -67,7 +70,7 @@ def fetch_data(sql_conn, schema, table_name, sql_columns):
     try:
         column_str = ', '.join([f'[{col}]' for col in sql_columns])
         query = f"SELECT {column_str} FROM {schema}.{table_name}"
-        logger.info(f"Executing query: {query}")
+        # logger.info(f"Executing query: {query}") 
         df = pd.read_sql(query, sql_conn)
         logger.info(f"Fetched {len(df)} rows from {schema}.{table_name}")
         return df
@@ -162,116 +165,24 @@ def main():
         'host': 'b2b-s360.chpxcjdw4aj9.ap-south-1.rds.amazonaws.com',
         'user': 'B2B_Admin',
         'password': 'b2b@123',
-        'database': 'skyline_bkp'
+        'database': 'skyline_staging'
     }
     
     # Table and column mappings
     table_name = 'Calendar'
-    sql_columns = [
-        'calendarID',
-        'districtID',
-        'schoolID',
-        'endYear',
-        'name',
-        'number',
-        'startDate',
-        'endDate',
-        'comments',
-        'exclude',
-        'summerSchool',
-        'studentDay',
-        'teacherDay',
-        'wholeDayAbsence',
-        'halfDayAbsence',
-        'calendarGUID',
-        'alternativeCode',
-        'title3',
-        'title3consortium',
-        'title1',
-        'legacyKey',
-        'schoolChoice',
-        'type',
-        'countDate',
-        'assignmentRequired',
-        'sifExclude',
-        'positiveAttendanceEnabled',
-        'positiveAttendanceEditDays',
-        'track',
-        'typeBIE',
-        'sequence',
-        'externalLMSExclude',
-        'attendanceType',
-        'echs',
-        'stem',
-        'programType',
-        'deleteIndicator',
-        'deleteOrigin',
-        'deleteReasonCode',
-        'deleteReasonComments',
-        'deleteRequestedByID',
-        'deleteRequestedTimestamp',
-        'deleteStatus',
-        'deleteFailureReason',
-        'deleteRequestedByGUID',
-        'foodServiceEnrollOverride',
-        'secondarySchool',
-        'virtual',
-        'ignoreCourseMasterPush',
-        'rolledForwardID',
-        'crossSiteEnrollmentOpen'
+    sql_columns = ['calendarID','districtID','schoolID','endYear','name',
+        'number','startDate','endDate','comments','exclude','summerSchool','studentDay','teacherDay','wholeDayAbsence','halfDayAbsence',
+        'calendarGUID','alternativeCode','title3','title3consortium','title1','legacyKey','schoolChoice','type','countDate','assignmentRequired','sifExclude',
+        'positiveAttendanceEnabled','positiveAttendanceEditDays','track','typeBIE','sequence','externalLMSExclude','attendanceType','echs','stem','programType','deleteIndicator',
+        'deleteOrigin','deleteReasonCode','deleteReasonComments','deleteRequestedByID','deleteRequestedTimestamp','deleteStatus','deleteFailureReason',
+        'deleteRequestedByGUID','foodServiceEnrollOverride','secondarySchool','virtual','ignoreCourseMasterPush','rolledForwardID','crossSiteEnrollmentOpen'
     ]
-    mysql_columns = [
-        'calendarID',
-        'districtID',
-        'schoolID',
-        'endYear',
-        'name',
-        'number',
-        'startDate',
-        'endDate',
-        'comments',
-        'exclude',
-        'summerSchool',
-        'studentDay',
-        'teacherDay',
-        'wholeDayAbsence',
-        'halfDayAbsence',
-        'calendarGUID',
-        'alternativeCode',
-        'title3',
-        'title3consortium',
-        'title1',
-        'legacyKey',
-        'schoolChoice',
-        'type',
-        'countDate',
-        'assignmentRequired',
-        'sifExclude',
-        'positiveAttendanceEnabled',
-        'positiveAttendanceEditDays',
-        'track',
-        'typeBIE',
-        'sequence',
-        'externalLMSExclude',
-        'attendanceType',
-        'echs',
-        'stem',
-        'programType',
-        'deleteIndicator',
-        'deleteOrigin',
-        'deleteReasonCode',
-        'deleteReasonComments',
-        'deleteRequestedByID',
-        'deleteRequestedTimestamp',
-        'deleteStatus',
-        'deleteFailureReason',
-        'deleteRequestedByGUID',
-        'foodServiceEnrollOverride',
-        'secondarySchool',
-        'virtual',
-        'ignoreCourseMasterPush',
-        'rolledForwardID',
-        'crossSiteEnrollmentOpen'
+    mysql_columns = ['calendarID','districtID','schoolID','endYear','name',
+        'number','startDate','endDate','comments','exclude','summerSchool','studentDay','teacherDay','wholeDayAbsence','halfDayAbsence',
+        'calendarGUID','alternativeCode','title3','title3consortium','title1','legacyKey','schoolChoice','type','countDate','assignmentRequired','sifExclude',
+        'positiveAttendanceEnabled','positiveAttendanceEditDays','track','typeBIE','sequence','externalLMSExclude','attendanceType','echs','stem','programType','deleteIndicator',
+        'deleteOrigin','deleteReasonCode','deleteReasonComments','deleteRequestedByID','deleteRequestedTimestamp','deleteStatus','deleteFailureReason',
+        'deleteRequestedByGUID','foodServiceEnrollOverride','secondarySchool','virtual','ignoreCourseMasterPush','rolledForwardID','crossSiteEnrollmentOpen'
     ]
     
     try:

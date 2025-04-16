@@ -67,7 +67,7 @@ def fetch_data(sql_conn, schema, table_name, sql_columns):
     try:
         column_str = ', '.join([f'[{col}]' for col in sql_columns])
         query = f"SELECT {column_str} FROM {schema}.{table_name}"
-        logger.info(f"Executing query: {query}")
+        # logger.info(f"Executing query: {query}") 
         df = pd.read_sql(query, sql_conn)
         logger.info(f"Fetched {len(df)} rows from {schema}.{table_name}")
         return df
@@ -168,29 +168,13 @@ def main():
     # Table and column mappings
     table_name = 'Pronoun'
     sql_columns = [
-        'pronounID',
-        'code',
-        'stateCode',
-        'name',
-        'startDate',
-        'endDate',
-        'subjectiveForm',
-        'objectiveForm',
-        'dependentPossessiveForm',
-        'independentPossessiveForm'
-    ]
+                    'pronounID','code','stateCode','name','startDate','endDate','subjectiveForm','objectiveForm',
+                    'dependentPossessiveForm','independentPossessiveForm'
+                ]
     mysql_columns = [
-        'pronounID',
-        'code',
-        'stateCode',
-        'name',
-        'startDate',
-        'endDate',
-        'subjectiveForm',
-        'objectiveForm',
-        'dependentPossessiveForm',
-        'independentPossessiveForm'
-    ]
+                      'pronounID','code','stateCode','name','startDate','endDate','subjectiveForm','objectiveForm',
+                      'dependentPossessiveForm', 'independentPossessiveForm'
+                    ]
     
     try:
         # Create SSH tunnel
@@ -226,15 +210,7 @@ def main():
         # Fetch and load data
         df = fetch_data(sql_conn, 'dbo', table_name, sql_columns)
         if not df.empty:
-            insert_data(
-                mysql_conn,
-                mysql_engine,
-                table_name,
-                df,
-                mysql_columns,
-                batch_size=10000,
-                truncate=True
-            )
+            insert_data(mysql_conn,mysql_engine,table_name,df,mysql_columns,batch_size=10000,truncate=True)
         else:
             logger.warning(f"No data retrieved from source table '{table_name}'")
             
