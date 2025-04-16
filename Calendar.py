@@ -5,6 +5,8 @@ import sshtunnel
 import logging
 import urllib.parse
 from sqlalchemy import create_engine
+from mysql.connector import Error as MyError
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -60,23 +62,27 @@ def get_mysql_connection(mysql_host, mysql_user, mysql_password, mysql_db):
         logger.error(f"Failed to connect to MySQL: {str(e)}")
         raise
 
-def fetch_data(sql_conn, table_name, sql_columns):
+def fetch_data(sql_conn, schema, table_name, sql_columns):
     """Fetch specified columns from SQL Server table"""
     try:
         column_str = ', '.join([f'[{col}]' for col in sql_columns])
-        query = f"SELECT {column_str} FROM dbo.{table_name}"
+        query = f"SELECT {column_str} FROM {schema}.{table_name}"
         logger.info(f"Executing query: {query}")
         df = pd.read_sql(query, sql_conn)
-        logger.info(f"Fetched {len(df)} rows from {table_name}")
+        logger.info(f"Fetched {len(df)} rows from {schema}.{table_name}")
         return df
     except Exception as e:
-        logger.error(f"Failed to fetch data from {table_name}: {str(e)}")
+        logger.error(f"Failed to fetch data from {schema}.{table_name}: {str(e)}")
         raise
 
-def load_data_to_mysql(mysql_conn, mysql_config, table_name, df, mysql_columns, batch_size=10000, truncate=False):
-    """Load data into MySQL table in batches with optional truncate"""
+def insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_size=10000, truncate=False):
+    """Insert data into MySQL table in batches with retry logic"""
     try:
         cursor = mysql_conn.cursor()
+        
+        # Disable foreign key checks
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+        mysql_conn.commit()
         
         # Get initial count
         cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
@@ -85,33 +91,53 @@ def load_data_to_mysql(mysql_conn, mysql_config, table_name, df, mysql_columns, 
         
         # Truncate table if requested
         if truncate:
-            cursor.execute(f"TRUNCATE TABLE `{table_name}`")
-            mysql_conn.commit()
-            logger.info(f"Successfully truncated table '{table_name}'")
+            try:
+                cursor.execute(f"TRUNCATE TABLE `{table_name}`")
+                mysql_conn.commit()
+                logger.info(f"Successfully truncated table '{table_name}'")
+            except MyError as e:
+                logger.error(f"Error truncating table '{table_name}': {str(e)}")
+                mysql_conn.rollback()
+                raise
         
         # Rename DataFrame columns to match MySQL target columns
         df.columns = mysql_columns
         
-        # Create SQLAlchemy engine
-        encoded_password = urllib.parse.quote(mysql_config['password'])
-        mysql_engine = create_engine(
-            f"mysql+pymysql://{mysql_config['user']}:{encoded_password}@{mysql_config['host']}/{mysql_config['database']}"
-        )
-        
-        # Load data in batches
+        # Insert data in batches
         total_rows = len(df)
+        total_inserted = 0
         for start in range(0, total_rows, batch_size):
             batch_df = df.iloc[start:start + batch_size]
-            batch_df.to_sql(table_name, mysql_engine, if_exists='append', index=False)
-            logger.info(f"Inserted batch {start//batch_size + 1}: {len(batch_df)} rows")
+            try:
+                batch_df.to_sql(table_name, mysql_engine, if_exists='append', index=False)
+                total_inserted += len(batch_df)
+                logger.info(f"Inserted batch {start//batch_size + 1}: {len(batch_df)} rows into '{table_name}'")
+            except Exception as e:
+                logger.error(f"Error in batch {start//batch_size + 1} for '{table_name}': {str(e)}")
+                mysql_conn.rollback()
+                time.sleep(5)
+                try:
+                    batch_df.to_sql(table_name, mysql_engine, if_exists='append', index=False)
+                    total_inserted += len(batch_df)
+                    logger.info(f"Successfully retried batch {start//batch_size + 1}: {len(batch_df)} rows into '{table_name}'")
+                except Exception as retry_e:
+                    logger.error(f"Retry failed for batch {start//batch_size + 1} in '{table_name}': {str(retry_e)}")
+                    mysql_conn.rollback()
+                    continue
         
         # Verify final count
         cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
         after_count = cursor.fetchone()[0]
-        logger.info(f"Total records in target table after insertion: {after_count}")
+        logger.info(f"Attempted to insert {total_rows} rows into '{table_name}'")
+        logger.info(f"Successfully inserted {total_inserted} rows into '{table_name}'")
+        logger.info(f"Total records in target table '{table_name}' after insertion: {after_count}")
+        
+        # Re-enable foreign key checks
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+        mysql_conn.commit()
         
     except Exception as e:
-        logger.error(f"Failed to load data to {table_name}: {str(e)}")
+        logger.error(f"Failed to load data to '{table_name}': {str(e)}")
         mysql_conn.rollback()
         raise
     finally:
@@ -141,7 +167,6 @@ def main():
     
     # Table and column mappings
     table_name = 'Calendar'
-    # SQL Server columns (source)
     sql_columns = [
         'calendarID',
         'districtID',
@@ -195,7 +220,6 @@ def main():
         'rolledForwardID',
         'crossSiteEnrollmentOpen'
     ]
-    # MySQL columns (target)
     mysql_columns = [
         'calendarID',
         'districtID',
@@ -249,6 +273,7 @@ def main():
         'rolledForwardID',
         'crossSiteEnrollmentOpen'
     ]
+    
     try:
         # Create SSH tunnel
         tunnel = create_ssh_tunnel(
@@ -274,13 +299,26 @@ def main():
             mysql_config['database']
         )
         
+        # Create SQLAlchemy engine
+        encoded_password = urllib.parse.quote(mysql_config['password'])
+        mysql_engine = create_engine(
+            f"mysql+pymysql://{mysql_config['user']}:{encoded_password}@{mysql_config['host']}/{mysql_config['database']}?charset=utf8mb4"
+        )
+        
         # Fetch and load data
-        df = fetch_data(sql_conn, table_name, sql_columns)
+        df = fetch_data(sql_conn, 'dbo', table_name, sql_columns)
         if not df.empty:
-            load_data_to_mysql(mysql_conn, mysql_config, table_name, df, mysql_columns,
-                             batch_size=10000, truncate=True)
+            insert_data(
+                mysql_conn,
+                mysql_engine,
+                table_name,
+                df,
+                mysql_columns,
+                batch_size=10000,
+                truncate=True
+            )
         else:
-            logger.warning("No data retrieved from source table")
+            logger.warning(f"No data retrieved from source table '{table_name}'")
             
     except Exception as e:
         logger.error(f"Script failed: {str(e)}")
