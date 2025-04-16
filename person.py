@@ -80,6 +80,10 @@ def insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_s
     try:
         cursor = mysql_conn.cursor()
         
+        # Disable foreign key checks
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+        mysql_conn.commit()
+        
         # Get initial count
         cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
         before_count = cursor.fetchone()[0]
@@ -128,6 +132,10 @@ def insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_s
         logger.info(f"Successfully inserted {total_inserted} rows into '{table_name}'")
         logger.info(f"Total records in target table '{table_name}' after insertion: {after_count}")
         
+        # Re-enable foreign key checks
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+        mysql_conn.commit()
+        
     except Exception as e:
         logger.error(f"Failed to load data to '{table_name}': {str(e)}")
         mysql_conn.rollback()
@@ -157,9 +165,8 @@ def main():
         'database': 'skyline_bkp'
     }
     
-    # Table and column mappings for Pronoun
+    # Table and column mappings
     table_name = 'Person'
-    # SQL Server columns (source)
     sql_columns = [
         'personID',
         'currentIdentityID',
@@ -176,7 +183,6 @@ def main():
         'additionalID',
         'edFiID'
     ]
-    # MySQL columns (target)
     mysql_columns = [
         'personID',
         'currentIdentityID',
@@ -222,7 +228,7 @@ def main():
         # Create SQLAlchemy engine
         encoded_password = urllib.parse.quote(mysql_config['password'])
         mysql_engine = create_engine(
-            f"mysql+pymysql://{mysql_config['user']}:{encoded_password}@{mysql_config['host']}/{mysql_config['database']}"
+            f"mysql+pymysql://{mysql_config['user']}:{encoded_password}@{mysql_config['host']}/{mysql_config['database']}?charset=utf8mb4"
         )
         
         # Fetch and load data
