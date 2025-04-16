@@ -4,6 +4,7 @@ import pyodbc
 import sshtunnel
 import logging
 import urllib.parse
+import time
 from sqlalchemy import create_engine
 
 # Configure logging
@@ -67,6 +68,14 @@ def fetch_data(sql_conn, table_name, sql_columns):
         query = f"SELECT {column_str} FROM dbo.{table_name}"
         logger.info(f"Executing query: {query}")
         df = pd.read_sql(query, sql_conn)
+        
+        # Check for duplicate enrollmentGUID
+        if 'enrollmentGUID' in df.columns:
+            duplicates = df[df['enrollmentGUID'].duplicated(keep=False)]
+            if not duplicates.empty:
+                logger.error(f"Duplicate enrollmentGUID values found: {duplicates['enrollmentGUID']}")
+                raise ValueError("Duplicate enrollmentGUID values")
+        
         logger.info(f"Fetched {len(df)} rows from {table_name}")
         return df
     except Exception as e:
@@ -74,9 +83,14 @@ def fetch_data(sql_conn, table_name, sql_columns):
         raise
 
 def load_data_to_mysql(mysql_conn, mysql_config, table_name, df, mysql_columns, batch_size=10000, truncate=False):
-    """Load data into MySQL table in batches with optional truncate"""
+    """Load data into MySQL table in batches with optional truncate and retry logic"""
     try:
         cursor = mysql_conn.cursor()
+        
+        # Disable foreign key checks
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+        mysql_conn.commit()
+        logger.info("Foreign key checks disabled")
         
         # Get initial count
         cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
@@ -95,23 +109,45 @@ def load_data_to_mysql(mysql_conn, mysql_config, table_name, df, mysql_columns, 
         # Create SQLAlchemy engine
         encoded_password = urllib.parse.quote(mysql_config['password'])
         mysql_engine = create_engine(
-            f"mysql+pymysql://{mysql_config['user']}:{encoded_password}@{mysql_config['host']}/{mysql_config['database']}"
+            f"mysql+pymysql://{mysql_config['user']}:{encoded_password}@{mysql_config['host']}/{mysql_config['database']}?charset=utf8mb4"
         )
         
         # Load data in batches
         total_rows = len(df)
+        total_inserted = 0
         for start in range(0, total_rows, batch_size):
             batch_df = df.iloc[start:start + batch_size]
-            batch_df.to_sql(table_name, mysql_engine, if_exists='append', index=False)
-            logger.info(f"Inserted batch {start//batch_size + 1}: {len(batch_df)} rows")
+            try:
+                batch_df.to_sql(table_name, mysql_engine, if_exists='append', index=False)
+                total_inserted += len(batch_df)
+                logger.info(f"Inserted batch {start//batch_size + 1}: {len(batch_df)} rows into '{table_name}'")
+            except Exception as e:
+                logger.error(f"Error in batch {start//batch_size + 1} for '{table_name}': {str(e)}")
+                mysql_conn.rollback()
+                time.sleep(5)
+                try:
+                    batch_df.to_sql(table_name, mysql_engine, if_exists='append', index=False)
+                    total_inserted += len(batch_df)
+                    logger.info(f"Successfully retried batch {start//batch_size + 1}: {len(batch_df)} rows into '{table_name}'")
+                except Exception as retry_e:
+                    logger.error(f"Retry failed for batch {start//batch_size + 1} in '{table_name}': {str(retry_e)}")
+                    mysql_conn.rollback()
+                    continue
         
         # Verify final count
         cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
         after_count = cursor.fetchone()[0]
-        logger.info(f"Total records in target table after insertion: {after_count}")
+        logger.info(f"Attempted to insert {total_rows} rows into '{table_name}'")
+        logger.info(f"Successfully inserted {total_inserted} rows into '{table_name}'")
+        logger.info(f"Total records in target table '{table_name}' after insertion: {after_count}")
+        
+        # Re-enable foreign key checks
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+        mysql_conn.commit()
+        logger.info("Foreign key checks re-enabled")
         
     except Exception as e:
-        logger.error(f"Failed to load data to {table_name}: {str(e)}")
+        logger.error(f"Failed to load data to '{table_name}': {str(e)}")
         mysql_conn.rollback()
         raise
     finally:
@@ -141,7 +177,6 @@ def main():
     
     # Table and column mappings
     table_name = 'Enrollment'
-    # SQL Server columns (source)
     sql_columns = [
         'enrollmentID',
         'personID',
@@ -249,9 +284,8 @@ def main():
         'excludeFromDpsaCalculation',
         'crossSiteEnrollment',
         'peerID',
-        'choiceBasisReason' 
-        ]
-    # MySQL columns (target)
+        'choiceBasisReason'
+    ]
     mysql_columns = [
         'enrollmentID',
         'personID',
@@ -360,7 +394,8 @@ def main():
         'crossSiteEnrollment',
         'peerID',
         'choiceBasisReason'
-        ]
+    ]
+    
     try:
         # Create SSH tunnel
         tunnel = create_ssh_tunnel(
