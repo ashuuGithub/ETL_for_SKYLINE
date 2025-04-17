@@ -7,6 +7,10 @@ import urllib.parse
 from sqlalchemy import create_engine
 from mysql.connector import Error as MyError
 import time
+import warnings
+
+
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
