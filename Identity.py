@@ -8,7 +8,8 @@ from sqlalchemy import create_engine
 from mysql.connector import Error as MyError
 import time
 import warnings
-
+from dotenv import load_dotenv
+import os
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -69,40 +70,9 @@ def get_mysql_connection(mysql_host, mysql_user, mysql_password, mysql_db):
 def fetch_data(sql_conn, schema, table_name, sql_columns):
     """Fetch specified columns from SQL Server table"""
     try:
-        columns = sql_columns.copy()
-        if 'identityGUID' in columns:
-            columns[columns.index('identityGUID')] = 'CAST(identityGUID AS VARCHAR(36)) AS identityGUID'
-        column_str = ', '.join([f'[{col}]' if col != 'CAST(identityGUID AS VARCHAR(36)) AS identityGUID' else col for col in columns])
+        column_str = ', '.join([f'[{col}]' for col in sql_columns])
         query = f"SELECT {column_str} FROM {schema}.[{table_name}]"
-        # logger.info(f"Executing query: {query}")
         df = pd.read_sql(query, sql_conn)
-        
-        # Handle NOT NULL columns
-        not_null_columns = [
-            'personID', 'lastName', 'districtID', 
-            'foreignLanguageProficiency', 'literacyLanguage', 
-            'multipleBirth', 'certificateOfIndianBlood', 
-            'languageInterpreter', 'languageAltInterpreter', 
-            'languageAlt2Interpreter'
-        ]
-        for col in not_null_columns:
-            if col in df.columns:
-                df[col] = df[col].fillna(0)
-        
-        # Validate string lengths
-        for col in ['lastName', 'firstName', 'middleName', 'suffix', 'alias', 'legalFirstName', 'legalLastName', 'legalMiddleName']:
-            if col in df.columns:
-                max_len = 50
-                if df[col].str.len().max() > max_len:
-                    logger.warning(f"Column {col} has values exceeding {max_len} characters")
-        
-        # Check for duplicate identityGUID
-        if 'identityGUID' in df.columns:
-            duplicates = df[df['identityGUID'].duplicated(keep=False)]
-            if not duplicates.empty:
-                logger.error(f"Duplicate identityGUID values found: {duplicates['identityGUID']}")
-                raise ValueError("Duplicate identityGUID values")
-        
         logger.info(f"Fetched {len(df)} rows from {schema}.{table_name}")
         return df
     except Exception as e:
@@ -133,17 +103,6 @@ def insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_s
                 logger.error(f"Error truncating table '{table_name}': {str(e)}")
                 mysql_conn.rollback()
                 raise
-        
-        # Exclude identityID from DataFrame and mysql_columns
-        if 'identityID' in df.columns:
-            df = df.drop(columns=['identityID'])
-        if 'identityID' in mysql_columns:
-            mysql_columns = [col for col in mysql_columns if col != 'identityID']
-        
-        # Verify column count match
-        if len(df.columns) != len(mysql_columns):
-            logger.error(f"Column count mismatch: DataFrame has {len(df.columns)} columns, but mysql_columns has {len(mysql_columns)}")
-            raise ValueError(f"Column count mismatch: DataFrame has {len(df.columns)} columns, but mysql_columns has {len(mysql_columns)}")
         
         # Rename DataFrame columns to match MySQL target columns
         df.columns = mysql_columns
@@ -189,51 +148,55 @@ def insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_s
         cursor.close()
 
 def main():
-    # Configuration
+    # Load environment variables from .env file
+    load_dotenv()
+
+    # Configuration from environment variables
     ssh_config = {
-        'host': '54.177.119.221',
-        'username': 'ec2-user',
-        'password': None,
-        'private_key_path': r'C:\Users\AshishKumarSen\Downloads\EC2_Skyline_Key.pem',
-        'remote_host': 'skylineaz.infinitecampus.org',
-        'remote_port': 7771
+        'host': os.getenv('SSH_HOST'),
+        'username': os.getenv('SSH_USERNAME'),
+        'password': os.getenv('SSH_PASSWORD') or None,  # Handle empty password
+        'private_key_path': os.getenv('SSH_PRIVATE_KEY_PATH'),
+        'remote_host': os.getenv('SSH_REMOTE_HOST'),
+        'remote_port': int(os.getenv('SSH_REMOTE_PORT'))
     }
     sql_server_config = {
-        'database': 'skyline',
-        'user': 'SkylineEducation_ArshadHayat',
-        'password': 'kukaPUBReJlCoF4lZina'
+        'database': os.getenv('SQL_SERVER_DATABASE'),
+        'user': os.getenv('SQL_SERVER_USER'),
+        'password': os.getenv('SQL_SERVER_PASSWORD')
     }
     mysql_config = {
-        'host': 'b2b-s360.chpxcjdw4aj9.ap-south-1.rds.amazonaws.com',
-        'user': 'B2B_Admin',
-        'password': 'b2b@123',
-        'database': 'skyline_staging'
+        'host': os.getenv('MYSQL_HOST'),
+        'user': os.getenv('MYSQL_USER'),
+        'password': os.getenv('MYSQL_PASSWORD'),
+        'database': os.getenv('MYSQL_DATABASE')
     }
     
     # Table and column mappings
-    table_name = 'Identity'
+    table_name = 'Identity' 
     sql_columns = [
-                'identityID','personID','effectiveDate','lastName','firstName',
-                'middleName','suffix','alias','gender','birthdate','ssn','raceEthnicity','birthCountry','dateEnteredUS','birthVerification','comments','districtID',
-                'hispanicEthnicity','identityGUID','lastNamePhonetic','firstNamePhonetic','dateEnteredState','birthCertificate','immigrant','dateEnteredUSSchool','raceEthnicityFed',
-                'raceEthnicityDetermination','birthStateNoSIF','birthCity','birthCounty','modifiedByID','modifiedDate','birthVerificationBIE','refugee','homePrimaryLanguage',
-                'stateHispanicEthnicity','birthState','homePrimaryLanguageBIE','homeSecondaryLanguageBIE','languageAlt','languageAlt2','foreignLanguageProficiency','literacyLanguage',
-                'legalFirstName','legalLastName','legalMiddleName','legalSuffix','legalGender','usCitizen','visaType','originCountry','hispanicWriteIn','asianWriteIn','caribbeanWriteIn',
-                'centralAfricanWriteIn','eastAfricanWriteIn','latinAmericanWriteIn','southAfricanWriteIn','westAfricanWriteIn','blackWriteIn','alaskaNativeWriteIn','americanIndianWriteIn',
-                'pacificIslanderWriteIn','easternEuropeanWriteIn','middleEasternWriteIn','northAfricanWriteIn','usEntryType','multipleBirth','languageSurveyDate','certificateOfIndianBlood',
-                'birthGender','languageInterpreter','languageAltInterpreter','languageAlt2Interpreter','educationLevel','pronounID','tribalEnrollment','languageAlt3','languageAlt4'
-                 ]
+        'identityID','personID','effectiveDate','lastName','firstName',
+        'middleName','suffix','alias','gender','birthdate','ssn','raceEthnicity','birthCountry','dateEnteredUS','birthVerification','comments','districtID',
+        'hispanicEthnicity','identityGUID','lastNamePhonetic','firstNamePhonetic','dateEnteredState','birthCertificate','immigrant','dateEnteredUSSchool','raceEthnicityFed',
+        'raceEthnicityDetermination','birthStateNoSIF','birthCity','birthCounty','modifiedByID','modifiedDate','birthVerificationBIE','refugee','homePrimaryLanguage',
+        'stateHispanicEthnicity','birthState','homePrimaryLanguageBIE','homeSecondaryLanguageBIE','languageAlt','languageAlt2','foreignLanguageProficiency','literacyLanguage',
+        'legalFirstName','legalLastName','legalMiddleName','legalSuffix','legalGender','usCitizen','visaType','originCountry','hispanicWriteIn','asianWriteIn','caribbeanWriteIn',
+        'centralAfricanWriteIn','eastAfricanWriteIn','latinAmericanWriteIn','southAfricanWriteIn','westAfricanWriteIn','blackWriteIn','alaskaNativeWriteIn','americanIndianWriteIn',
+        'pacificIslanderWriteIn','easternEuropeanWriteIn','middleEasternWriteIn','northAfricanWriteIn','usEntryType','multipleBirth','languageSurveyDate','certificateOfIndianBlood',
+        'birthGender','languageInterpreter','languageAltInterpreter','languageAlt2Interpreter','educationLevel','pronounID','tribalEnrollment','languageAlt3','languageAlt4'
+    ]
     mysql_columns = [
-                'identityID','personID','effectiveDate','lastName','firstName',
-                'middleName','suffix','alias','gender','birthdate','ssn','raceEthnicity','birthCountry','dateEnteredUS','birthVerification','comments','districtID',
-                'hispanicEthnicity','identityGUID','lastNamePhonetic','firstNamePhonetic','dateEnteredState','birthCertificate','immigrant','dateEnteredUSSchool','raceEthnicityFed',
-                'raceEthnicityDetermination','birthStateNoSIF','birthCity','birthCounty','modifiedByID','modifiedDate','birthVerificationBIE','refugee','homePrimaryLanguage',
-                'stateHispanicEthnicity','birthState','homePrimaryLanguageBIE','homeSecondaryLanguageBIE','languageAlt','languageAlt2','foreignLanguageProficiency','literacyLanguage',
-                'legalFirstName','legalLastName','legalMiddleName','legalSuffix','legalGender','usCitizen','visaType','originCountry','hispanicWriteIn','asianWriteIn','caribbeanWriteIn',
-                'centralAfricanWriteIn','eastAfricanWriteIn','latinAmericanWriteIn','southAfricanWriteIn','westAfricanWriteIn','blackWriteIn','alaskaNativeWriteIn','americanIndianWriteIn',
-                'pacificIslanderWriteIn','easternEuropeanWriteIn','middleEasternWriteIn','northAfricanWriteIn','usEntryType','multipleBirth','languageSurveyDate','certificateOfIndianBlood',
-                'birthGender','languageInterpreter','languageAltInterpreter','languageAlt2Interpreter','educationLevel','pronounID','tribalEnrollment','languageAlt3','languageAlt4'
-                 ]
+        'identityID','personID','effectiveDate','lastName','firstName',
+        'middleName','suffix','alias','gender','birthdate','ssn','raceEthnicity','birthCountry','dateEnteredUS','birthVerification','comments','districtID',
+        'hispanicEthnicity','identityGUID','lastNamePhonetic','firstNamePhonetic','dateEnteredState','birthCertificate','immigrant','dateEnteredUSSchool','raceEthnicityFed',
+        'raceEthnicityDetermination','birthStateNoSIF','birthCity','birthCounty','modifiedByID','modifiedDate','birthVerificationBIE','refugee','homePrimaryLanguage',
+        'stateHispanicEthnicity','birthState','homePrimaryLanguageBIE','homeSecondaryLanguageBIE','languageAlt','languageAlt2','foreignLanguageProficiency','literacyLanguage',
+        'legalFirstName','legalLastName','legalMiddleName','legalSuffix','legalGender','usCitizen','visaType','originCountry','hispanicWriteIn','asianWriteIn','caribbeanWriteIn',
+        'centralAfricanWriteIn','eastAfricanWriteIn','latinAmericanWriteIn','southAfricanWriteIn','westAfricanWriteIn','blackWriteIn','alaskaNativeWriteIn','americanIndianWriteIn',
+        'pacificIslanderWriteIn','easternEuropeanWriteIn','middleEasternWriteIn','northAfricanWriteIn','usEntryType','multipleBirth','languageSurveyDate','certificateOfIndianBlood',
+        'birthGender','languageInterpreter','languageAltInterpreter','languageAlt2Interpreter','educationLevel','pronounID','tribalEnrollment','languageAlt3','languageAlt4'
+    ]
+    
     try:
         # Create SSH tunnel
         tunnel = create_ssh_tunnel(

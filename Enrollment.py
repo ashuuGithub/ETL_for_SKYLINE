@@ -7,7 +7,11 @@ import urllib.parse
 import time
 from sqlalchemy import create_engine
 import warnings
+import os
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -70,7 +74,6 @@ def fetch_data(sql_conn, table_name, sql_columns):
     try:
         column_str = ', '.join([f'[{col}]' for col in sql_columns])
         query = f"SELECT {column_str} FROM dbo.{table_name}"
-        # logger.info(f"Executing query: {query}")
         df = pd.read_sql(query, sql_conn)
         
         # Check for duplicate enrollmentGUID
@@ -158,25 +161,25 @@ def load_data_to_mysql(mysql_conn, mysql_config, table_name, df, mysql_columns, 
         cursor.close()
 
 def main():
-    # Configuration
+    # Configuration from .env
     ssh_config = {
-        'host': '54.177.119.221',
-        'username': 'ec2-user',
-        'password': None,
-        'private_key_path': r'C:\Users\AshishKumarSen\Downloads\EC2_Skyline_Key.pem',
-        'remote_host': 'skylineaz.infinitecampus.org',
-        'remote_port': 7771
+        'host': os.getenv('SSH_HOST'),
+        'username': os.getenv('SSH_USERNAME'),
+        'password': os.getenv('SSH_PASSWORD') or None,  # Handle empty password
+        'private_key_path': os.getenv('SSH_PRIVATE_KEY_PATH'),
+        'remote_host': os.getenv('SSH_REMOTE_HOST'),
+        'remote_port': int(os.getenv('SSH_REMOTE_PORT'))
     }
     sql_server_config = {
-        'database': 'skyline',
-        'user': 'SkylineEducation_ArshadHayat',
-        'password': 'kukaPUBReJlCoF4lZina'
+        'database': os.getenv('SQL_SERVER_DATABASE'),
+        'user': os.getenv('SQL_SERVER_USER'),
+        'password': os.getenv('SQL_SERVER_PASSWORD')
     }
     mysql_config = {
-        'host': 'b2b-s360.chpxcjdw4aj9.ap-south-1.rds.amazonaws.com',
-        'user': 'B2B_Admin',
-        'password': 'b2b@123',
-        'database': 'skyline_staging'
+        'host': os.getenv('MYSQL_HOST'),
+        'user': os.getenv('MYSQL_USER'),
+        'password': os.getenv('MYSQL_PASSWORD'),
+        'database': os.getenv('MYSQL_DATABASE')
     }
     
     # Table and column mappings
@@ -192,7 +195,7 @@ def main():
         'attendanceGroup','projectedGraduationDate','withdrawDate','rollForwardCode','rollForwardEnrollmentID','cohortYear','disability6','disability7','disability8','disability9',
         'disability10','nextStructureID','schoolEntryDate','districtEntryDate','mvUnaccompaniedYouth','externalLMSExclude','schoolOfAccountability','localStartStatusTypeID',
         'localEndStatusTypeID','schoolChoiceProgram','dpsaCalculatedTier', 'dpsaReportedTier', 'excludeFromDpsaCalculation','crossSiteEnrollment','peerID','choiceBasisReason'
-                ]
+    ]
     mysql_columns = [
         'enrollmentID','personID','calendarID','structureID','grade','serviceType', 'active', 'classRankExclude','noShow','startDate',
         'startStatus','startComments', 'endDate','endStatus', 'endComments', 'endAction','nextCalendar', 'nextGrade','diplomaDate','diplomaType','diplomaPeriod',
@@ -204,7 +207,8 @@ def main():
         'attendanceGroup','projectedGraduationDate','withdrawDate','rollForwardCode','rollForwardEnrollmentID','cohortYear','disability6','disability7','disability8','disability9',
         'disability10','nextStructureID','schoolEntryDate','districtEntryDate','mvUnaccompaniedYouth','externalLMSExclude','schoolOfAccountability','localStartStatusTypeID',
         'localEndStatusTypeID','schoolChoiceProgram','dpsaCalculatedTier', 'dpsaReportedTier', 'excludeFromDpsaCalculation','crossSiteEnrollment','peerID','choiceBasisReason'
-                ]
+    ]
+    
     try:
         # Create SSH tunnel
         tunnel = create_ssh_tunnel(

@@ -7,9 +7,9 @@ import urllib.parse
 from sqlalchemy import create_engine
 from mysql.connector import Error as MyError
 import time
-import sys
 import warnings
-
+from dotenv import load_dotenv
+import os
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -67,63 +67,59 @@ def get_mysql_connection(mysql_host, mysql_user, mysql_password, mysql_db):
         logger.error(f"Failed to connect to MySQL: {str(e)}")
         raise
 
-def fetch_data(sql_conn, schema, table_name, sql_columns):
-    """Fetch specified columns from SQL Server table"""
+def get_valid_ids(mysql_conn, table_name, column_name):
+    """Fetch valid IDs from a MySQL table"""
+    try:
+        cursor = mysql_conn.cursor()
+        cursor.execute(f"SELECT `{column_name}` FROM `{table_name}`")
+        valid_ids = set(row[0] for row in cursor.fetchall() if row[0] is not None)
+        logger.info(f"Fetched {len(valid_ids)} valid IDs from {table_name}.{column_name}")
+        cursor.close()
+        return valid_ids
+    except Exception as e:
+        logger.error(f"Failed to fetch valid IDs from {table_name}.{column_name}: {str(e)}")
+        return set()
+
+def fetch_data(sql_conn, mysql_conn, schema, table_name, sql_columns):
+    """Fetch specified columns from SQL Server table and clean data"""
     try:
         column_str = ', '.join([f'[{col}]' for col in sql_columns])
         query = f"SELECT {column_str} FROM {schema}.{table_name}"
-        # logger.info(f"Executing query: {query}")
         df = pd.read_sql(query, sql_conn)
         logger.info(f"Fetched {len(df)} rows from {schema}.{table_name}")
+
+        # Clean currentIdentityID
+        if 'currentIdentityID' in df.columns:
+            # Get valid identity IDs from MySQL Identity table
+            valid_identity_ids = get_valid_ids(mysql_conn, 'Identity', 'identityID')
+            original_null_count = df['currentIdentityID'].isna().sum()
+            
+            # Convert float to int and set invalid IDs to NULL
+            df['currentIdentityID'] = df['currentIdentityID'].apply(
+                lambda x: int(x) if pd.notna(x) and x == float(int(x)) and int(x) in valid_identity_ids else None
+            )
+            
+            new_null_count = df['currentIdentityID'].isna().sum()
+            logger.info(f"Set {new_null_count - original_null_count} currentIdentityID values to NULL")
+
+        # Clean modifiedByID
+        if 'modifiedByID' in df.columns:
+            # Get valid user IDs from MySQL Users table (adjust table name as needed)
+            valid_user_ids = get_valid_ids(mysql_conn, 'Users', 'userID')
+            original_null_count = df['modifiedByID'].isna().sum()
+            
+            # Set invalid or negative modifiedByID to NULL
+            df['modifiedByID'] = df['modifiedByID'].apply(
+                lambda x: int(x) if pd.notna(x) and x > 0 and int(x) in valid_user_ids else None
+            )
+            
+            new_null_count = df['modifiedByID'].isna().sum()
+            logger.info(f"Set {new_null_count - original_null_count} modifiedByID values to NULL")
+
         return df
     except Exception as e:
         logger.error(f"Failed to fetch data from {schema}.{table_name}: {str(e)}")
         raise
-
-def check_identity_table(mysql_conn):
-    """Check if Identity table has data"""
-    try:
-        cursor = mysql_conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM Identity")
-        count = cursor.fetchone()[0]
-        logger.info(f"Identity table contains {count} records")
-        if count == 0:
-            raise ValueError("Identity table is empty. Please load Identity data first.")
-        return count
-    except Exception as e:
-        logger.error(f"Failed to check Identity table: {str(e)}")
-        raise
-    finally:
-        cursor.close()
-
-def validate_current_identity_id(mysql_conn, df):
-    """Validate currentIdentityID against Identity table and set invalid values to NULL"""
-    try:
-        cursor = mysql_conn.cursor()
-        # Fetch existing identityIDs
-        cursor.execute("SELECT identityID FROM Identity")
-        valid_ids = set(row[0] for row in cursor.fetchall())
-        logger.info(f"Found {len(valid_ids)} valid identityIDs in Identity table")
-        
-        # Set currentIdentityID to NULL if not in valid_ids
-        original_null_count = df['currentIdentityID'].isna().sum()
-        df['currentIdentityID'] = df['currentIdentityID'].apply(
-            lambda x: x if pd.isna(x) or x in valid_ids else None
-        )
-        new_null_count = df['currentIdentityID'].isna().sum()
-        invalid_count = new_null_count - original_null_count
-        logger.info(f"Set {invalid_count} invalid currentIdentityID values to NULL")
-        
-        # Warn if too many values are invalid
-        if invalid_count > len(df) * 0.5:  # More than 50% invalid
-            logger.warning(f"High number of invalid currentIdentityID values ({invalid_count}/{len(df)}). Verify Identity data.")
-        
-        return df
-    except Exception as e:
-        logger.error(f"Failed to validate currentIdentityID: {str(e)}")
-        raise
-    finally:
-        cursor.close()
 
 def insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_size=10000, truncate=False):
     """Insert data into MySQL table in batches with retry logic"""
@@ -133,7 +129,6 @@ def insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_s
         # Disable foreign key checks
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
         mysql_conn.commit()
-        logger.info("Foreign key checks disabled")
         
         # Get initial count
         cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
@@ -183,21 +178,9 @@ def insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_s
         logger.info(f"Successfully inserted {total_inserted} rows into '{table_name}'")
         logger.info(f"Total records in target table '{table_name}' after insertion: {after_count}")
         
-        # Validate foreign key integrity
-        cursor.execute("""
-            SELECT COUNT(*) 
-            FROM Person p 
-            LEFT JOIN Identity i ON p.currentIdentityID = i.identityID 
-            WHERE p.currentIdentityID IS NOT NULL AND i.identityID IS NULL
-        """)
-        invalid_count = cursor.fetchone()[0]
-        if invalid_count > 0:
-            logger.warning(f"Found {invalid_count} Person records with invalid currentIdentityID")
-        
         # Re-enable foreign key checks
         cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
         mysql_conn.commit()
-        logger.info("Foreign key checks re-enabled")
         
     except Exception as e:
         logger.error(f"Failed to load data to '{table_name}': {str(e)}")
@@ -207,25 +190,28 @@ def insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_s
         cursor.close()
 
 def main():
-    # Configuration
+    # Load environment variables from .env file
+    load_dotenv()
+
+    # Configuration from environment variables
     ssh_config = {
-        'host': '54.177.119.221',
-        'username': 'ec2-user',
-        'password': None,
-        'private_key_path': r'C:\Users\AshishKumarSen\Downloads\EC2_Skyline_Key.pem',
-        'remote_host': 'skylineaz.infinitecampus.org',
-        'remote_port': 7771
+        'host': os.getenv('SSH_HOST'),
+        'username': os.getenv('SSH_USERNAME'),
+        'password': os.getenv('SSH_PASSWORD') or None,
+        'private_key_path': os.getenv('SSH_PRIVATE_KEY_PATH'),
+        'remote_host': os.getenv('SSH_REMOTE_HOST'),
+        'remote_port': int(os.getenv('SSH_REMOTE_PORT'))
     }
     sql_server_config = {
-        'database': 'skyline',
-        'user': 'SkylineEducation_ArshadHayat',
-        'password': 'kukaPUBReJlCoF4lZina'
+        'database': os.getenv('SQL_SERVER_DATABASE'),
+        'user': os.getenv('SQL_SERVER_USER'),
+        'password': os.getenv('SQL_SERVER_PASSWORD')
     }
     mysql_config = {
-        'host': 'b2b-s360.chpxcjdw4aj9.ap-south-1.rds.amazonaws.com',
-        'user': 'B2B_Admin',
-        'password': 'b2b@123',
-        'database': 'skyline_staging'
+        'host': os.getenv('MYSQL_HOST'),
+        'user': os.getenv('MYSQL_USER'),
+        'password': os.getenv('MYSQL_PASSWORD'),
+        'database': os.getenv('MYSQL_DATABASE')
     }
     
     # Table and column mappings
@@ -272,23 +258,10 @@ def main():
             f"mysql+pymysql://{mysql_config['user']}:{encoded_password}@{mysql_config['host']}/{mysql_config['database']}?charset=utf8mb4"
         )
         
-        # Check Identity table
-        check_identity_table(mysql_conn)
-        
-        # Fetch and validate data
-        df = fetch_data(sql_conn, 'dbo', table_name, sql_columns)
+        # Fetch and load data
+        df = fetch_data(sql_conn, mysql_conn, 'dbo', table_name, sql_columns)
         if not df.empty:
-            # Validate currentIdentityID
-            df = validate_current_identity_id(mysql_conn, df)
-            insert_data(
-                mysql_conn,
-                mysql_engine,
-                table_name,
-                df,
-                mysql_columns,
-                batch_size=10000,
-                truncate=True
-            )
+            insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_size=10000, truncate=True)
         else:
             logger.warning(f"No data retrieved from source table '{table_name}'")
             
@@ -303,15 +276,9 @@ def main():
         if 'mysql_conn' in locals():
             mysql_conn.close()
             logger.info("MySQL connection closed")
-        if 'mysql_engine' in locals():
-            mysql_engine.dispose()
-            logger.info("MySQL engine disposed")
         if 'tunnel' in locals():
             tunnel.stop()
-            tunnel.close()
             logger.info("SSH tunnel closed")
-        logger.info("Exiting script")
-        sys.exit(0)
 
 if __name__ == "__main__":
     main()

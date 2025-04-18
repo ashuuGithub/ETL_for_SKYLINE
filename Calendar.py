@@ -175,19 +175,25 @@ def main():
     
     # Table and column mappings
     table_name = 'Calendar'
-    sql_columns = ['calendarID','districtID','schoolID','endYear','name',
-        'number','startDate','endDate','comments','exclude','summerSchool','studentDay','teacherDay','wholeDayAbsence','halfDayAbsence',
-        'calendarGUID','alternativeCode','title3','title3consortium','title1','legacyKey','schoolChoice','type','countDate','assignmentRequired','sifExclude',
-        'positiveAttendanceEnabled','positiveAttendanceEditDays','track','typeBIE','sequence','externalLMSExclude','attendanceType','echs','stem','programType','deleteIndicator',
-        'deleteOrigin','deleteReasonCode','deleteReasonComments','deleteRequestedByID','deleteRequestedTimestamp','deleteStatus','deleteFailureReason',
-        'deleteRequestedByGUID','foodServiceEnrollOverride','secondarySchool','virtual','ignoreCourseMasterPush','rolledForwardID','crossSiteEnrollmentOpen'
+    sql_columns = [
+        'calendarID', 'districtID', 'schoolID', 'endYear', 'name', 'number', 'startDate', 'endDate', 'comments',
+        'exclude', 'summerSchool', 'studentDay', 'teacherDay', 'wholeDayAbsence', 'halfDayAbsence', 'calendarGUID',
+        'alternativeCode', 'title3', 'title3consortium', 'title1', 'legacyKey', 'schoolChoice', 'type', 'countDate',
+        'assignmentRequired', 'sifExclude', 'positiveAttendanceEnabled', 'positiveAttendanceEditDays', 'track',
+        'typeBIE', 'sequence', 'externalLMSExclude', 'attendanceType', 'echs', 'stem', 'programType', 'deleteIndicator',
+        'deleteOrigin', 'deleteReasonCode', 'deleteReasonComments', 'deleteRequestedByID', 'deleteRequestedTimestamp',
+        'deleteStatus', 'deleteFailureReason', 'deleteRequestedByGUID', 'foodServiceEnrollOverride', 'secondarySchool',
+        'virtual', 'ignoreCourseMasterPush', 'rolledForwardID', 'crossSiteEnrollmentOpen'
     ]
-    mysql_columns = ['calendarID','districtID','schoolID','endYear','name',
-        'number','startDate','endDate','comments','exclude','summerSchool','studentDay','teacherDay','wholeDayAbsence','halfDayAbsence',
-        'calendarGUID','alternativeCode','title3','title3consortium','title1','legacyKey','schoolChoice','type','countDate','assignmentRequired','sifExclude',
-        'positiveAttendanceEnabled','positiveAttendanceEditDays','track','typeBIE','sequence','externalLMSExclude','attendanceType','echs','stem','programType','deleteIndicator',
-        'deleteOrigin','deleteReasonCode','deleteReasonComments','deleteRequestedByID','deleteRequestedTimestamp','deleteStatus','deleteFailureReason',
-        'deleteRequestedByGUID','foodServiceEnrollOverride','secondarySchool','virtual','ignoreCourseMasterPush','rolledForwardID','crossSiteEnrollmentOpen'
+    mysql_columns = [
+        'calendarID', 'districtID', 'schoolID', 'endYear', 'name', 'number', 'startDate', 'endDate', 'comments',
+        'exclude', 'summerSchool', 'studentDay', 'teacherDay', 'wholeDayAbsence', 'halfDayAbsence', 'calendarGUID',
+        'alternativeCode', 'title3', 'title3consortium', 'title1', 'legacyKey', 'schoolChoice', 'type', 'countDate',
+        'assignmentRequired', 'sifExclude', 'positiveAttendanceEnabled', 'positiveAttendanceEditDays', 'track',
+        'typeBIE', 'sequence', 'externalLMSExclude', 'attendanceType', 'echs', 'stem', 'programType', 'deleteIndicator',
+        'deleteOrigin', 'deleteReasonCode', 'deleteReasonComments', 'deleteRequestedByID', 'deleteRequestedTimestamp',
+        'deleteStatus', 'deleteFailureReason', 'deleteRequestedByGUID', 'foodServiceEnrollOverride', 'secondarySchool',
+        'virtual', 'ignoreCourseMasterPush', 'rolledForwardID', 'crossSiteEnrollmentOpen'
     ]
     
     try:
@@ -224,15 +230,7 @@ def main():
         # Fetch and load data
         df = fetch_data(sql_conn, 'dbo', table_name, sql_columns)
         if not df.empty:
-            insert_data(
-                mysql_conn,
-                mysql_engine,
-                table_name,
-                df,
-                mysql_columns,
-                batch_size=10000,
-                truncate=True
-            )
+            insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_size=10000, truncate=True)
         else:
             logger.warning(f"No data retrieved from source table '{table_name}'")
             
