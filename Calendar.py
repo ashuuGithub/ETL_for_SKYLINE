@@ -8,9 +8,11 @@ from sqlalchemy import create_engine
 from mysql.connector import Error as MyError
 import time
 import warnings
-
+from dotenv import load_dotenv
+import os
 
 warnings.filterwarnings("ignore", category=UserWarning)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -147,25 +149,28 @@ def insert_data(mysql_conn, mysql_engine, table_name, df, mysql_columns, batch_s
         cursor.close()
 
 def main():
-    # Configuration
+    # Load environment variables from .env file
+    load_dotenv()
+
+    # Configuration from environment variables
     ssh_config = {
-        'host': '54.177.119.221',
-        'username': 'ec2-user',
-        'password': None,
-        'private_key_path': r'C:\Users\AshishKumarSen\Downloads\EC2_Skyline_Key.pem',
-        'remote_host': 'skylineaz.infinitecampus.org',
-        'remote_port': 7771
+        'host': os.getenv('SSH_HOST'),
+        'username': os.getenv('SSH_USERNAME'),
+        'password': os.getenv('SSH_PASSWORD') or None,  # Handle empty password
+        'private_key_path': os.getenv('SSH_PRIVATE_KEY_PATH'),
+        'remote_host': os.getenv('SSH_REMOTE_HOST'),
+        'remote_port': int(os.getenv('SSH_REMOTE_PORT'))
     }
     sql_server_config = {
-        'database': 'skyline',
-        'user': 'SkylineEducation_ArshadHayat',
-        'password': 'kukaPUBReJlCoF4lZina'
+        'database': os.getenv('SQL_SERVER_DATABASE'),
+        'user': os.getenv('SQL_SERVER_USER'),
+        'password': os.getenv('SQL_SERVER_PASSWORD')
     }
     mysql_config = {
-        'host': 'b2b-s360.chpxcjdw4aj9.ap-south-1.rds.amazonaws.com',
-        'user': 'B2B_Admin',
-        'password': 'b2b@123',
-        'database': 'skyline_staging'
+        'host': os.getenv('MYSQL_HOST'),
+        'user': os.getenv('MYSQL_USER'),
+        'password': os.getenv('MYSQL_PASSWORD'),
+        'database': os.getenv('MYSQL_DATABASE')
     }
     
     # Table and column mappings
