@@ -161,13 +161,20 @@ def main():
         'user': 'SkylineEducation_ArshadHayat',
         'password': 'kukaPUBReJlCoF4lZina'
     }
+    # mysql_config = {
+    #     'host': 'b2b-s360.chpxcjdw4aj9.ap-south-1.rds.amazonaws.com',
+    #     'user': 'B2B_Admin',
+    #     'password': 'b2b@123',
+    #     'database': 'skyline_staging'
+    # }
+
     mysql_config = {
-        'host': 'b2b-s360.chpxcjdw4aj9.ap-south-1.rds.amazonaws.com',
-        'user': 'B2B_Admin',
-        'password': 'b2b@123',
-        'database': 'skyline_staging'
+        'host': 'karmadaai.c1sikqws6o1c.us-east-2.rds.amazonaws.com',
+        'user': 'admin',
+        'password': 'Welcome123',
+        'database': 'SkyLine_Staging'
     }
-    
+
     # View and column mappings
     view_name = 'staffMember'  # SQL Server view name
     table_name = 'staffMember_view'  # MySQL table name
